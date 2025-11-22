@@ -241,3 +241,7 @@ This project is open-sourced software licensed under the [MIT license](https://o
 ---
 
 **Need Help?** Feel free to open an issue or contact the development team!
+
+
+
+NOTE :: IF YOU ARE USING LAREVEL HERD THEN YOU CAN USE YOUR OWN url INSTEAD OF http://localhost:8000/api/woocommerce/products
