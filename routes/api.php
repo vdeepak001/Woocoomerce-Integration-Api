@@ -23,4 +23,7 @@ Route::prefix('woocommerce')->group(function () {
     
     // Batch operations
     Route::post('products/batch', [WooCommerceProductController::class, 'batch']);
+    
+    // Sync all products from WooCommerce
+    Route::post('sync', [WooCommerceProductController::class, 'sync']);
 });

@@ -16,6 +16,11 @@ A Laravel-based REST API wrapper for WooCommerce that provides seamless product 
 ## ✨ Features
 
 - **Product Management**: Full CRUD operations for WooCommerce products
+- **WooCommerce ID-Based Endpoints**: All product endpoints use WooCommerce product IDs for consistency
+- **Dual Data Source**: Fetch data from local database (fast) or live WooCommerce API (real-time)
+- **Background Queue Processing**: Asynchronous product creation and updates with retry logic
+- **Pagination & Search**: Efficient product listing with filtering capabilities
+- **Product Synchronization**: Bulk sync all WooCommerce products to local database
 - **Category Management**: List and manage product categories
 - **Batch Operations**: Perform bulk operations on multiple products
 - **RESTful API**: Clean and intuitive API endpoints
@@ -63,7 +68,19 @@ WOOCOMMERCE_CONSUMER_KEY=your_consumer_key_here
 WOOCOMMERCE_CONSUMER_SECRET=your_consumer_secret_here
 ```
 
-### 5. Start the Development Server
+### 5. Run Database Migrations
+
+```bash
+php artisan migrate
+```
+
+### 6. Start Queue Worker (Required for Background Jobs)
+
+```bash
+php artisan queue:work
+```
+
+### 7. Start the Development Server
 
 ```bash
 php artisan serve
@@ -100,13 +117,15 @@ All endpoints are prefixed with `/api/woocommerce`
 
 ### Products
 
+> **Important**: All product endpoints use **WooCommerce product IDs**, not local database IDs.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/products` | List all products |
-| `GET` | `/products/{id}` | Get a single product by ID |
+| `GET` | `/products` | List all products (supports `?source=local` or `?source=live`) |
+| `GET` | `/products/{woocommerce_id}` | Get a single product by WooCommerce ID |
 | `POST` | `/products` | Create a new product |
-| `PUT` | `/products/{id}` | Update an existing product |
-| `DELETE` | `/products/{id}` | Delete a product |
+| `PUT` | `/products/{woocommerce_id}` | Update an existing product |
+| `DELETE` | `/products/{woocommerce_id}` | Delete a product |
 | `POST` | `/products/batch` | Batch operations (create, update, delete) |
 
 ### Categories
@@ -115,21 +134,88 @@ All endpoints are prefixed with `/api/woocommerce`
 |--------|----------|-------------|
 | `GET` | `/categories` | List all categories |
 
+### Synchronization
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/sync` | Sync all products from WooCommerce to local database |
+
 ## 💡 Usage Examples
 
-### List All Products
+### List All Products (with Pagination & Search)
 
 ```bash
+# Fetch from local database (default, fast)
 GET http://localhost:8000/api/woocommerce/products
+
+# Fetch from live WooCommerce API (real-time data)
+GET http://localhost:8000/api/woocommerce/products?source=live
+
+# With pagination (local database)
+GET http://localhost:8000/api/woocommerce/products?page=1&per_page=20
+
+# Search by name or SKU (local database)
+GET http://localhost:8000/api/woocommerce/products?search=laptop
+
+# Filter by SKU (local database)
+GET http://localhost:8000/api/woocommerce/products?sku=PROD-001
+```
+
+**Response (Local Source):**
+```json
+{
+  "status": "success",
+  "source": "local",
+  "data": [
+    {
+      "id": 1,
+      "woocommerce_id": 123,
+      "name": "Gaming Laptop",
+      "sku": "LAP-001",
+      "price": "999.99",
+      "sync_status": "synced"
+    }
+  ],
+  "pagination": {
+    "total": 50,
+    "per_page": 10,
+    "current_page": 1,
+    "last_page": 5
+  }
+}
 ```
 
 ### Get Single Product
 
+> **Note**: Use the **WooCommerce product ID**, not the local database ID.
+
 ```bash
-GET http://localhost:8000/api/woocommerce/products/123
+# Fetch from local database (default, fast)
+GET http://localhost:8000/api/woocommerce/products/7917
+
+# Fetch from live WooCommerce API (real-time data)
+GET http://localhost:8000/api/woocommerce/products/7917?source=live
 ```
 
-### Create a Product
+**Response (Local Source):**
+```json
+{
+  "status": "success",
+  "source": "local",
+  "product": {
+    "id": 2,
+    "woocommerce_id": 7917,
+    "name": "Muscletech",
+    "sku": "MT-001",
+    "price": "49.99",
+    "sync_status": "synced"
+  }
+}
+```
+
+### Create a Product (Background Queue)
+
+> **Note**: Product creation is now asynchronous. The product is created locally and queued for WooCommerce sync.
 
 ```bash
 POST http://localhost:8000/api/woocommerce/products
@@ -137,34 +223,66 @@ Content-Type: application/json
 
 {
   "name": "Premium T-Shirt",
-  "type": "simple",
-  "regular_price": "29.99",
+  "sku": "TSHIRT-001",
+  "price": 29.99,
   "description": "High-quality cotton t-shirt",
   "short_description": "Comfortable and stylish",
-  "categories": [
-    {
-      "id": 9
-    }
-  ]
+  "quantity": 100,
+  "woocommerce_category_id": [9]
 }
 ```
 
-### Update a Product
+**Response:**
+```json
+{
+  "status": "success",
+  "product_id": 1,
+  "sync_status": "pending",
+  "message": "Product created locally and queued for WooCommerce sync"
+}
+```
+
+### Update a Product (Background Queue)
+
+> **Important**: Use the **WooCommerce product ID** in the URL, not the local database ID.
+
+> **Note**: Product updates are asynchronous. Changes are saved locally and queued for WooCommerce sync.
 
 ```bash
-PUT http://localhost:8000/api/woocommerce/products/123
+PUT http://localhost:8000/api/woocommerce/products/7917
 Content-Type: application/json
 
 {
-  "regular_price": "24.99",
-  "sale_price": "19.99"
+  "price": 24.99,
+  "quantity": 150
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "product_id": 2,
+  "woocommerce_id": 7917,
+  "sync_status": "pending",
+  "message": "Product updated locally and queued for WooCommerce sync"
 }
 ```
 
 ### Delete a Product
 
+> **Note**: Use the **WooCommerce product ID**. This will delete from both local database and WooCommerce.
+
 ```bash
-DELETE http://localhost:8000/api/woocommerce/products/123
+DELETE http://localhost:8000/api/woocommerce/products/7917
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Product deleted from local database and WooCommerce."
+}
 ```
 
 ### Batch Operations
@@ -187,6 +305,27 @@ Content-Type: application/json
     }
   ],
   "delete": [456]
+}
+```
+
+### Sync All Products from WooCommerce
+
+Synchronize all products from WooCommerce to your local database:
+
+```bash
+POST http://localhost:8000/api/woocommerce/sync
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Products synchronized successfully",
+  "statistics": {
+    "total_synced": 150,
+    "new_products": 25,
+    "updated_products": 125
+  }
 }
 ```
 
